@@ -1,0 +1,25 @@
+[package]
+name = "wymmd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+mime = "0.3.17"
+swc_common = "26.0.0"
+swc_css_codegen = "26.0.0"
+swc_css_minifier = "26.0.0"
+swc_css_parser = "26.0.0"
+swc_ecma_codegen = "32.0.3"
+swc_ecma_minifier = "62.0.1"
+swc_ecma_parser = "45.1.6"
+tokio = { version = "1.53.1", features = [ "macros", "rt-multi-thread", "net", "signal" ] }
+tracing = "0.1.44"
+tracing-flat-json = "0.1.1"
+tracing-subscriber = { version = "0.3.23", features = [ "env-filter" ]}
+uuid = { version = "1.27.0", features = [ "v4" ]}
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tower = { version = "0.5.3", features = [ "util" ]}
