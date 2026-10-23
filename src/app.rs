@@ -2,8 +2,14 @@ use crate::{
     css::SwcCssMinifier,
     http::{minify_route, request_context},
     js::SwcJsMinifier,
+    metrics::Metrics,
 };
-use axum::{Router, extract::DefaultBodyLimit, http::StatusCode, routing::get};
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    http::{StatusCode, header},
+    routing::get,
+};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -19,16 +25,38 @@ pub(crate) fn app(max_body_size: usize) -> Router {
     let limit = Arc::new(Semaphore::new(
         std::thread::available_parallelism().unwrap().get(),
     ));
+    let metrics = Metrics::new();
     Router::new()
         .route("/healthz", get(async || StatusCode::OK))
+        .route(
+            "/metrics",
+            get({
+                let metrics = metrics.clone();
+                let limit = limit.clone();
+                async move || {
+                    (
+                        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+                        metrics.render(&limit),
+                    )
+                }
+            }),
+        )
         .nest(
             "/v1",
             Router::new()
                 .route(
                     "/js",
-                    minify_route(SwcJsMinifier, "text/javascript", limit.clone()),
+                    minify_route(
+                        SwcJsMinifier,
+                        "text/javascript",
+                        limit.clone(),
+                        metrics.clone(),
+                    ),
                 )
-                .route("/css", minify_route(SwcCssMinifier, "text/css", limit)),
+                .route(
+                    "/css",
+                    minify_route(SwcCssMinifier, "text/css", limit, metrics),
+                ),
         )
         .layer(DefaultBodyLimit::max(max_body_size))
         .layer(axum::middleware::from_fn(request_context))
@@ -121,15 +149,7 @@ mod tests {
     #[tokio::test]
     async fn minifies_js() {
         let src = "console.log(1 + 2);";
-        let res = call(
-            LIMIT,
-            "POST",
-            "/v1/js",
-            Some("text/javascript"),
-            None,
-            src,
-        )
-        .await;
+        let res = call(LIMIT, "POST", "/v1/js", Some("text/javascript"), None, src).await;
         assert_eq!(res.status, StatusCode::OK);
         assert_eq!(res.content_type.as_deref(), Some("text/javascript"));
         assert_eq!(res.body, SwcJsMinifier.minify(src).unwrap());
@@ -247,6 +267,7 @@ mod tests {
             ("PUT", "/v1/js"),
             ("DELETE", "/v1/js"),
             ("POST", "/healthz"),
+            ("POST", "/metrics"),
         ] {
             let res = call(LIMIT, method, uri, Some("text/css"), None, "body{}").await;
             assert_eq!(res.status, StatusCode::METHOD_NOT_ALLOWED, "{method} {uri}");
@@ -259,6 +280,58 @@ mod tests {
         let res = call(4, "POST", "/v1/css", Some("text/css"), None, "body{}").await;
         assert_eq!(res.status, StatusCode::PAYLOAD_TOO_LARGE);
         assert!(res.request_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn metrics_is_ok() {
+        let res = call(LIMIT, "GET", "/metrics", None, None, "").await;
+        assert_eq!(res.status, StatusCode::OK);
+        assert_eq!(
+            res.content_type.as_deref(),
+            Some("text/plain; version=0.0.4")
+        );
+        assert!(res.body.contains("tokio_workers"));
+        #[cfg(target_os = "linux")]
+        assert!(res.body.contains("process_resident_memory_bytes"));
+    }
+
+    #[tokio::test]
+    async fn metrics_count_minify_requests() {
+        let app = app(LIMIT);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/css")
+                    .header(header::CONTENT_TYPE, "text/css")
+                    .body(Body::from("body { color: red; }"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body = String::from_utf8_lossy(&body);
+        assert!(
+            body.contains("wymmd_minify_requests_total{media_type=\"text/css\",status=\"200\"} 1"),
+            "{body}"
+        );
+        assert!(
+            body.contains("wymmd_minify_input_bytes_count{media_type=\"text/css\"} 1"),
+            "{body}"
+        );
     }
 
     #[tokio::test]

@@ -52,6 +52,7 @@ curl -sS -X POST http://127.0.0.1:3000/v1/css \
 | `POST` | `/v1/js` | JavaScript, `Content-Type: text/javascript` |
 | `POST` | `/v1/css` | CSS, `Content-Type: text/css` |
 | `GET` | `/healthz` | none |
+| `GET` | `/metrics` | none |
 
 `x-request-id` is echoed on the response. If the request does not send one, the service generates a UUID.
 

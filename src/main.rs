@@ -2,6 +2,7 @@ mod app;
 mod css;
 mod http;
 mod js;
+mod metrics;
 mod minifier;
 mod trace_writer;
 

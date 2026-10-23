@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.104"
 axum = "0.8.9"
 mime = "0.3.17"
+prometheus = { version = "0.14.0", features = ["process"] }
 swc_common = "26.0.0"
 swc_css_codegen = "26.0.0"
 swc_css_minifier = "26.0.0"
